@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import CONFIG, Config
+from src.config import CONFIG
 
 
 def test_paths_are_derived_from_the_project_root():
@@ -16,24 +16,18 @@ def test_project_root_contains_the_source_package():
     assert (CONFIG.project_root / "src" / "config.py").is_file()
 
 
-def test_directories_can_be_overridden_by_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOUSE_PRICING_MODELS_DIR", str(tmp_path / "artifacts"))
+def test_ensure_directories_creates_missing_folders(tmp_path):
+    config = dataclasses.replace(
+        CONFIG,
+        models_dir=tmp_path / "models",
+        reports_dir=tmp_path / "reports",
+    )
 
-    config = Config()
-
-    assert config.models_dir == (tmp_path / "artifacts").resolve()
-    assert config.model_path.name == "model.pkl"
-
-
-def test_ensure_directories_creates_missing_folders(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOUSE_PRICING_MODELS_DIR", str(tmp_path / "models"))
-    monkeypatch.setenv("HOUSE_PRICING_REPORTS_DIR", str(tmp_path / "reports"))
-
-    config = Config()
     config.ensure_directories()
 
     assert config.models_dir.is_dir()
     assert config.reports_dir.is_dir()
+    assert config.model_path == tmp_path / "models" / "model.pkl"
 
 
 def test_config_is_immutable():

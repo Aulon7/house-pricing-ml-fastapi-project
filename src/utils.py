@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import random
-import subprocess
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -57,42 +56,6 @@ def set_seed(seed: int = CONFIG.random_seed) -> int:
         torch.cuda.manual_seed_all(seed)
 
     return seed
-
-
-def git_revision() -> str | None:
-    """Return the current commit, suffixed with "-dirty" for uncommitted work.
-
-    Recorded alongside the trained model so a prediction can always be traced
-    back to the exact preprocessing code that produced it. Returns None when
-    git is unavailable, which is the normal case inside a deployed container.
-    """
-
-    def run(*arguments: str) -> str | None:
-        try:
-            completed = subprocess.run(
-                ["git", *arguments],
-                cwd=CONFIG.project_root,
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-
-        if completed.returncode != 0:
-            return None
-
-        return completed.stdout.strip()
-
-    revision = run("rev-parse", "HEAD")
-
-    if not revision:
-        return None
-
-    changes = run("status", "--porcelain")
-
-    return f"{revision}-dirty" if changes else revision
 
 
 @contextmanager

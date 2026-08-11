@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pytest
 
-from src.utils import get_logger, git_revision, set_seed, timed
+from src.utils import get_logger, set_seed, timed
 
 
 @pytest.fixture
@@ -67,9 +67,3 @@ def test_timed_reraises_and_still_reports(captured_records):
             raise ValueError("boom")
 
     assert "broken step took" in caplog.text
-
-
-def test_git_revision_is_a_commit_or_none():
-    revision = git_revision()
-
-    assert revision is None or len(revision.split("-")[0]) == 40
