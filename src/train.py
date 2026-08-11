@@ -18,8 +18,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import joblib
 import pandas as pd
 from sklearn.base import clone
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.model_selection import KFold
 
 from src.config import CONFIG
@@ -29,7 +31,7 @@ from src.evaluate import (
     comparison_table,
     format_comparison,
 )
-from src.models import available_models, build_model
+from src.models import available_models, build_model, feature_names
 from src.utils import get_logger, set_seed
 
 LOGGER = get_logger("train")
@@ -158,6 +160,70 @@ def write_report(table: pd.DataFrame, path: Path | None = None) -> Path:
     return destination
 
 
+def train_final_model(
+    name: str, features: pd.DataFrame, target: pd.Series
+) -> TransformedTargetRegressor:
+    """Refit the winning candidate on every training row.
+
+    Cross-validation decides which model to ship; the shipped model itself is
+    trained on all the data, since holding rows back would only make it worse.
+    """
+
+    model = build_model(name)
+
+    started = time.perf_counter()
+    model.fit(features, target)
+
+    LOGGER.info(
+        "final %s trained on %d rows in %.1fs",
+        name,
+        len(features),
+        time.perf_counter() - started,
+    )
+
+    return model
+
+
+def save_artifacts(
+    model: TransformedTargetRegressor,
+    raw_columns: list[str],
+    models_dir: Path | None = None,
+) -> tuple[Path, Path]:
+    """Write model.pkl and features.pkl, returning both paths.
+
+    model.pkl holds the whole estimator, so it accepts a raw dataframe and
+    returns sale prices in dollars.
+
+    features.pkl holds two lists. "raw_columns" is what a caller has to
+    supply, which is what the serving layer needs to validate a request.
+    "encoded_columns" is what the regressor was fitted on after one-hot
+    encoding, useful for reading feature importances.
+    """
+
+    destination = models_dir or CONFIG.models_dir
+    destination.mkdir(parents=True, exist_ok=True)
+
+    model_path = destination / "model.pkl"
+    features_path = destination / "features.pkl"
+
+    joblib.dump(model, model_path)
+    joblib.dump(
+        {
+            "raw_columns": list(raw_columns),
+            "encoded_columns": feature_names(model),
+        },
+        features_path,
+    )
+
+    return model_path, features_path
+
+
+def required_input_columns(features: pd.DataFrame) -> list[str]:
+    """The raw columns a caller must provide, identifier excluded."""
+
+    return [column for column in features.columns if column != CONFIG.id_column]
+
+
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 
@@ -200,6 +266,15 @@ def main(argv: list[str] | None = None) -> int:
 
     winner = best_model_name(table)
     LOGGER.info("best model: %s", winner)
+
+    model = train_final_model(winner, features, target)
+
+    model_path, features_path = save_artifacts(
+        model, required_input_columns(features)
+    )
+
+    LOGGER.info("model saved to %s", model_path)
+    LOGGER.info("features saved to %s", features_path)
 
     return 0
 
