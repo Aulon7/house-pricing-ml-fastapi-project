@@ -6,7 +6,7 @@ from sklearn.compose import TransformedTargetRegressor
 
 from src.config import CONFIG
 from src.models import (
-    MODEL_BUILDERS,
+    MODEL_SPECS,
     PreprocessorStep,
     available_models,
     build_model,
@@ -30,9 +30,20 @@ def features_and_target(houses):
     return houses.drop(columns=CONFIG.target), houses[CONFIG.target]
 
 
-def test_the_three_planned_models_are_registered():
-    assert available_models() == ["xgboost", "lightgbm", "random_forest"]
-    assert set(MODEL_BUILDERS) == set(available_models())
+def test_the_planned_models_are_registered():
+    assert available_models() == ["xgboost", "lightgbm", "random_forest", "mlp"]
+    assert set(MODEL_SPECS) == set(available_models())
+
+
+def test_only_the_neural_network_is_scaled():
+    """Trees split on raw values, so scaling them would only cost time."""
+
+    scaled = {name for name, spec in MODEL_SPECS.items() if spec.needs_scaling}
+
+    assert scaled == {"mlp"}
+
+    assert "scaler" in build_model("mlp").regressor.named_steps
+    assert "scaler" not in build_model("xgboost").regressor.named_steps
 
 
 def test_unknown_model_names_are_rejected_with_the_options():
@@ -40,7 +51,7 @@ def test_unknown_model_names_are_rejected_with_the_options():
         build_model("catboost")
 
 
-@pytest.mark.parametrize("name", ["xgboost", "lightgbm", "random_forest"])
+@pytest.mark.parametrize("name", ["xgboost", "lightgbm", "random_forest", "mlp"])
 def test_every_candidate_is_cloneable(name):
     """Cross-validation clones the estimator before each fold."""
 
@@ -50,7 +61,7 @@ def test_every_candidate_is_cloneable(name):
     assert isinstance(clone(model), TransformedTargetRegressor)
 
 
-@pytest.mark.parametrize("name", ["xgboost", "lightgbm", "random_forest"])
+@pytest.mark.parametrize("name", ["xgboost", "lightgbm", "random_forest", "mlp"])
 def test_candidates_predict_plausible_sale_prices(name, features_and_target):
     X, y = features_and_target
 
@@ -118,5 +129,10 @@ def test_preprocessor_step_is_fitted_per_fit_call(features_and_target):
     fresh = clone(step)
 
     assert not hasattr(fresh, "preprocessor_")
+
+    # Names are recorded on transform, so asking too early says so clearly.
+    with pytest.raises(AttributeError, match="first transform"):
+        step.get_feature_names_out()
+
     assert step.transform(X).shape[0] == len(X)
     assert list(step.get_feature_names_out()) == step.feature_names_

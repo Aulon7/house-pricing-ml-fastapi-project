@@ -165,8 +165,23 @@ def test_main_exports_both_artifacts(monkeypatch, tmp_path):
         type(CONFIG)(models_dir=tmp_path, reports_dir=tmp_path),
     )
 
-    assert main(["--models", "random_forest", "--folds", "2"]) == 0
+    assert main(["--models", "random_forest", "--folds", "2", "--export"]) == 0
 
     assert (tmp_path / "model.pkl").is_file()
     assert (tmp_path / "features.pkl").is_file()
     assert (tmp_path / "model_comparison.csv").is_file()
+
+
+def test_a_partial_comparison_leaves_the_saved_model_alone(monkeypatch, tmp_path):
+    """Winning a one-horse race must not replace a better shipped model."""
+
+    monkeypatch.setattr(
+        "src.train.CONFIG",
+        type(CONFIG)(models_dir=tmp_path, reports_dir=tmp_path),
+    )
+
+    assert main(["--models", "random_forest", "--folds", "2"]) == 0
+
+    assert (tmp_path / "model_comparison.csv").is_file()
+    assert not (tmp_path / "model.pkl").exists()
+    assert not (tmp_path / "features.pkl").exists()

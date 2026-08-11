@@ -3,6 +3,7 @@ import pytest
 
 from src.config import CONFIG
 from src.evaluate import SELECTION_METRIC
+from src.models import available_models
 from src.train import (
     compare_models,
     cross_validate,
@@ -111,8 +112,14 @@ def test_write_report_creates_a_readable_csv(tmp_path, small_dataset):
 def test_arguments_default_to_every_model_and_the_configured_folds():
     arguments = parse_arguments([])
 
-    assert arguments.models == ["xgboost", "lightgbm", "random_forest"]
+    assert arguments.models == available_models()
+    assert "mlp" in arguments.models
     assert arguments.folds == CONFIG.n_splits
+
+
+def test_export_is_off_unless_asked_for():
+    assert parse_arguments([]).export is False
+    assert parse_arguments(["--export"]).export is True
 
 
 def test_arguments_reject_an_unknown_model():

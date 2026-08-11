@@ -240,6 +240,14 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=CONFIG.n_splits,
         help=f"number of cross-validation folds (default: {CONFIG.n_splits})",
     )
+    parser.add_argument(
+        "--export",
+        action="store_true",
+        help=(
+            "export the winner even when only some candidates were compared "
+            "(a partial run otherwise leaves the saved model untouched)"
+        ),
+    )
 
     return parser.parse_args(argv)
 
@@ -266,6 +274,21 @@ def main(argv: list[str] | None = None) -> int:
 
     winner = best_model_name(table)
     LOGGER.info("best model: %s", winner)
+
+    # Winning a two-horse race is not a reason to replace the shipped model,
+    # so a partial comparison exports nothing unless it is asked to.
+    compared_everything = set(arguments.models) == set(available_models())
+
+    if not (compared_everything or arguments.export):
+        LOGGER.warning(
+            "compared %d of %d candidates, so %s was left untouched; "
+            "pass --export to overwrite it",
+            len(arguments.models),
+            len(available_models()),
+            CONFIG.model_path.name,
+        )
+
+        return 0
 
     model = train_final_model(winner, features, target)
 

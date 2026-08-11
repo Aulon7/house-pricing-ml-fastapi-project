@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
 import random
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 
 import numpy as np
 
@@ -40,9 +36,10 @@ def set_seed(seed: int = CONFIG.random_seed) -> int:
 
     Torch is seeded only when it is installed, so the tree-based models keep
     working in an environment without the deep learning dependencies.
-    """
 
-    os.environ["PYTHONHASHSEED"] = str(seed)
+    PYTHONHASHSEED is deliberately not set here: the interpreter reads it at
+    start-up, so assigning it from inside a running process does nothing.
+    """
 
     random.seed(seed)
     np.random.seed(seed)
@@ -56,22 +53,3 @@ def set_seed(seed: int = CONFIG.random_seed) -> int:
         torch.cuda.manual_seed_all(seed)
 
     return seed
-
-
-@contextmanager
-def timed(label: str, logger: logging.Logger | None = None) -> Iterator[None]:
-    """Log how long a block took, so slow candidates are visible in the run."""
-
-    started = time.perf_counter()
-
-    try:
-        yield
-    finally:
-        elapsed = time.perf_counter() - started
-
-        message = f"{label} took {elapsed:.2f}s"
-
-        if logger is None:
-            print(message)
-        else:
-            logger.info(message)
