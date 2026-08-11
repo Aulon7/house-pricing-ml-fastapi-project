@@ -1,0 +1,12 @@
+pandas
+numpy
+scikit-learn
+xgboost
+lightgbm
+joblib
+fastapi[standard]
+pydantic-settings
+python-dotenv
+streamlit
+requests
+pytest
