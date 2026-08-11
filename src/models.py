@@ -51,9 +51,14 @@ class PreprocessorStep(BaseEstimator, TransformerMixin):
         # The encoded names are read off the output rather than off the
         # preprocessor's internal ColumnTransformer, which is private to P1
         # and is exactly what gets restructured when the cleaning schema is
-        # frozen. Recording them here rather than in fit costs nothing: a
-        # Pipeline transforms the training data on the way through anyway.
-        self.feature_names_ = list(encoded.columns)
+        # frozen. Recording them on the first transform costs nothing, since
+        # a Pipeline transforms the training data on the way through anyway.
+        #
+        # Recorded once and never rewritten: after export this same object
+        # serves predictions, and a transform that mutates fitted state is
+        # not safe to share across concurrent requests.
+        if not hasattr(self, "feature_names_"):
+            self.feature_names_ = list(encoded.columns)
 
         return encoded
 

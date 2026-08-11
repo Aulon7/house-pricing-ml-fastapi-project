@@ -89,6 +89,18 @@ def test_compare_models_ranks_the_requested_candidates(small_dataset):
     assert (table["fit_seconds"] > 0).all()
 
 
+def test_compare_models_rejects_a_half_supplied_dataset(small_dataset):
+    """Passing features without a target used to silently reload both."""
+
+    features, target = small_dataset
+
+    with pytest.raises(ValueError, match="both features and target"):
+        compare_models(["random_forest"], features, None, n_splits=2)
+
+    with pytest.raises(ValueError, match="both features and target"):
+        compare_models(["random_forest"], None, target, n_splits=2)
+
+
 def test_compare_models_rejects_unknown_candidates(small_dataset):
     features, target = small_dataset
 

@@ -136,3 +136,18 @@ def test_preprocessor_step_is_fitted_per_fit_call(features_and_target):
 
     assert step.transform(X).shape[0] == len(X)
     assert list(step.get_feature_names_out()) == step.feature_names_
+
+
+def test_transform_does_not_mutate_fitted_state(features_and_target):
+    """Predicting must not write to the estimator, which P3 will share."""
+
+    X, y = features_and_target
+
+    model = build_model("random_forest").fit(X, y)
+    step = model.regressor_.named_steps["preprocessor"]
+
+    recorded = step.feature_names_
+
+    model.predict(X)
+
+    assert step.feature_names_ is recorded

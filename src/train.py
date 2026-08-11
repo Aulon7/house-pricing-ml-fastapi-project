@@ -20,7 +20,6 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.base import clone
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.model_selection import KFold
 
@@ -93,7 +92,9 @@ def cross_validate(
         y_train = target.iloc[train_index]
         y_valid = target.iloc[valid_index]
 
-        model = clone(build_model(name))
+        # build_model already returns a fresh estimator; cloning it as well
+        # would only say something untrue about where the state lives.
+        model = build_model(name)
 
         started = time.perf_counter()
         model.fit(X_train, y_train)
@@ -131,6 +132,9 @@ def compare_models(
             f"unknown model(s) {', '.join(unknown)}; "
             f"available: {', '.join(available_models())}"
         )
+
+    if (features is None) != (target is None):
+        raise ValueError("pass both features and target, or neither")
 
     if features is None or target is None:
         features, target = load_training_data()
