@@ -118,8 +118,8 @@ def test_a_complete_single_row_can_be_predicted(exported, small_dataset):
 def test_a_missing_categorical_sent_as_none_is_tolerated(exported, small_dataset):
     """A field the Streamlit form leaves blank arrives as None, not NaN.
 
-    None keeps the column object-typed, so clean_data still sees a category
-    and the unknown value is encoded as all zeros.
+    prepare_dataframe normalises it to NaN and the imputer fitted on the
+    training data fills it in.
     """
 
     _, model_path, _ = exported
@@ -133,18 +133,16 @@ def test_a_missing_categorical_sent_as_none_is_tolerated(exported, small_dataset
     assert 10_000 < prediction[0] < 1_000_000
 
 
-@pytest.mark.xfail(
-    reason=(
-        "P1: a categorical column that is empty for every submitted row is "
-        "read as NaN and typed float64, so clean_data treats it as numeric "
-        "and fills it with 0, which the OneHotEncoder then rejects. This is "
-        "the batch CSV upload path in P4. Flips to passing once fixed."
-    ),
-    strict=False,
-)
 def test_an_uploaded_csv_with_an_empty_column_can_be_predicted(
     exported, small_dataset, tmp_path
 ):
+    """A column left empty for every uploaded row is read as NaN.
+
+    That used to retype the column as float64 and send a categorical down
+    the numeric path. The schema is frozen at fit now, so the column keeps
+    its role whatever the batch looks like.
+    """
+
     _, model_path, _ = exported
     features, _ = small_dataset
 
