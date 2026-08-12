@@ -1,8 +1,6 @@
 import pandas as pd
 
-"""According to data_description.txt, an empty value in these columns means the
- corresponding physical feature is absent, not that its value is unknown. """
-
+# Categorical features that are missing because the physical feature is absent should be filled with "None".
 ABSENCE_COLUMNS = ["Alley",
                     "BsmtQual",
                     "BsmtCond",
@@ -19,47 +17,38 @@ ABSENCE_COLUMNS = ["Alley",
                     "MiscFeature",
                     "MasVnrType"]
 
+# Numerical features that are missing because the physical feature is absent should be filled with 0.
+ZERO_FILL_COLUMNS = ["BsmtFinSF1",
+                    "BsmtFinSF2",
+                    "BsmtUnfSF",
+                    "TotalBsmtSF",
+                    "BsmtFullBath",
+                    "BsmtHalfBath",
+                    "MasVnrArea"]
+
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Returns a cleaned copy of Ames Housing dataset
-
-    Rules:
-    - Absence-related categorical values become "None".
-    - Numeric missing values use the column median.
-    - Other categorical missing values use the column mode.
+    Returns a cleaned copy of Ames Housing dataset.
+    General missing values are handled in HousePricingPreprocessor where values are learned from the training data.
     """
 
     # Copy the original dataframe to avoid modifying it.
     cleaned_df = df.copy()
 
-    # Missing means the physical feature does not exist.
+    # Missing means the categorical feature does not physically exist, fill with "None".
     for column in ABSENCE_COLUMNS:
         if column in cleaned_df.columns:
             cleaned_df[column] = cleaned_df[column].fillna("None")
 
-    # Fill every numeric missing value with the column median.
-    numeric_columns = cleaned_df.select_dtypes(include="number").columns
 
-    for column in numeric_columns:
-        if cleaned_df[column].isna().any():
-            non_missing_values = cleaned_df[column].dropna()
-            if non_missing_values.empty:
-                median = 0
-            else:
-                median = non_missing_values.median()
-            cleaned_df[column] = cleaned_df[column].fillna(median)
-
-    # Fill other categorical missing values with the most common value (mode).
-    categorical_columns = cleaned_df.select_dtypes(exclude="number").columns
-
-    for column in categorical_columns:
-        if cleaned_df[column].isna().any():
-            mode = cleaned_df[column].mode(dropna=True)
-
-            cleaned_df[column] = cleaned_df[column].fillna(
-                mode.iloc[0] if not mode.empty else "Unknown"
-            )
+    # Missing means the numeric feature is absent, fill with 0.
+    for column in ZERO_FILL_COLUMNS:
+        if column in cleaned_df.columns:
+            cleaned_df[column] = pd.to_numeric(
+                cleaned_df[column],
+                errors="coerce",
+            ).fillna(0)
 
     return cleaned_df
