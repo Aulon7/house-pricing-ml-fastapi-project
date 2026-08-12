@@ -45,7 +45,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
 
     features_df["HasGarage"] = (
-        features_df["GarageArea"] > 0
+        features_df["GarageType"] != "None"
     ).astype(int)
 
     features_df["HasBasement"] = (

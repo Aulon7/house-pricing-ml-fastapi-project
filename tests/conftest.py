@@ -10,7 +10,7 @@ def sample_houses():
             "MSSubClass": [20, 60, 70, 120],
             "Neighborhood": ["NAmes", "CollgCr", "NewArea", "NewArea"],
             "Alley": [None, "Grvl", None, "Pave"],
-            "GarageType": [None, "Attchd", "Detchd", None],
+            "GarageType": ["Attchd", "Attchd", "Detchd", None],
             "Electrical": [None, "SBrkr", "FuseA", "SBrkr"],
             "LotFrontage": [None, 80.0, 70.0, None],
             "TotalBsmtSF": [800, 900, 700, 600],

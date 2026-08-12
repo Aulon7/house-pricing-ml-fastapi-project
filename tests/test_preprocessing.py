@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -49,3 +50,34 @@ def test_preprocessor_returns_same_output_for_training_data(sample_houses):
     second_result = preprocessor.transform(X_train)
 
     pd.testing.assert_frame_equal(first_result, second_result)
+
+
+def test_preprocessor_uses_training_median(sample_houses):
+    X_train = sample_houses.iloc[[1, 2]].drop(columns="SalePrice")
+    X_new = sample_houses.iloc[[3]].drop(columns="SalePrice").copy()
+
+    # The training values are 80 and 70, so their median is 75.
+    X_new["LotFrontage"] = np.nan
+
+    preprocessor = HousePricingPreprocessor()
+    preprocessor.fit(X_train)
+
+    result = preprocessor.transform(X_new)
+
+    assert result["LotFrontage"].iloc[0] == 75
+
+
+def test_preprocessor_handles_single_row_with_none_category(sample_houses):
+    X_train = sample_houses.iloc[1:].drop(columns="SalePrice")
+    X_new = sample_houses.iloc[[0]].drop(columns="SalePrice").copy()
+
+    # FastAPI can create a one-row DataFrame containing Python None.
+    X_new["Electrical"] = None
+
+    preprocessor = HousePricingPreprocessor()
+    preprocessor.fit(X_train)
+
+    result = preprocessor.transform(X_new)
+
+    assert len(result) == 1
+    assert result.isna().sum().sum() == 0
