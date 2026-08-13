@@ -3,7 +3,7 @@ import pytest
 
 from src.config import CONFIG
 from src.evaluate import SELECTION_METRIC
-from src.models import available_models
+from src.models import PreprocessorStep, available_models
 from src.train import (
     compare_models,
     cross_validate,
@@ -83,7 +83,7 @@ def test_compare_models_ranks_the_requested_candidates(small_dataset):
         ["random_forest", "lightgbm"], features, target, n_splits=2
     )
 
-    assert set(table["model"]) == {"random_forest", "lightgbm"}
+    assert set(table["model"]) == {"random_forest (fe)", "lightgbm (fe)"}
     assert table[f"{SELECTION_METRIC}_mean"].is_monotonic_increasing
     assert (table["n_folds"] == 2).all()
     assert (table["fit_seconds"] > 0).all()
@@ -99,6 +99,38 @@ def test_compare_models_rejects_a_half_supplied_dataset(small_dataset):
 
     with pytest.raises(ValueError, match="both features and target"):
         compare_models(["random_forest"], None, target, n_splits=2)
+
+
+def test_both_variants_are_scored_over_the_same_folds(small_dataset):
+    """The ablation is only readable if both variants share the folds."""
+
+    features, target = small_dataset
+
+    table = compare_models(
+        ["random_forest"], features, target, n_splits=2, variants=("fe", "nofe")
+    )
+
+    assert set(table["model"]) == {"random_forest (fe)", "random_forest (nofe)"}
+
+    scores = dict(zip(table["model"], table["rmse_log_mean"]))
+
+    assert scores["random_forest (fe)"] != scores["random_forest (nofe)"]
+
+
+def test_the_ablation_drops_exactly_the_engineered_columns(small_dataset):
+    features, _ = small_dataset
+
+    with_features = PreprocessorStep().fit(features)
+    without = PreprocessorStep(engineer_features=False).fit(features)
+
+    removed = set(with_features.transform(features).columns) - set(
+        without.transform(features).columns
+    )
+
+    assert removed == set(without.dropped_columns_)
+    assert "TotalSF" in removed
+    assert "HouseAge" in removed
+    assert not with_features.dropped_columns_
 
 
 def test_compare_models_rejects_unknown_candidates(small_dataset):
