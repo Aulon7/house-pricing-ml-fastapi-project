@@ -115,6 +115,91 @@ def aggregate_folds(folds: Sequence[RegressionMetrics]) -> dict[str, float]:
     return summary
 
 
+#: Two-sided 95% critical values of Student's t, by degrees of freedom.
+#: Tabulated so the project does not need scipy for one lookup.
+_T_CRITICAL: dict[int, float] = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+}
+
+
+@dataclass(frozen=True)
+class PairedDifference:
+    """How two variants of the same model compare, fold by fold."""
+
+    metric: str
+    differences: tuple[float, ...]
+    mean: float
+    standard_error: float
+    ci_low: float
+    ci_high: float
+
+    @property
+    def separated(self) -> bool:
+        """True when the confidence interval excludes zero."""
+
+        return self.ci_low * self.ci_high > 0
+
+
+def paired_difference(
+    baseline: Sequence[RegressionMetrics],
+    challenger: Sequence[RegressionMetrics],
+    metric: str = SELECTION_METRIC,
+) -> PairedDifference:
+    """Compare two variants scored over the same folds.
+
+    Returns baseline minus challenger per fold, so a positive mean means the
+    challenger scores lower and therefore wins on a lower-is-better metric.
+
+    Two variants run over the same split are paired samples, not independent
+    groups. Comparing each mean against its own spread throws that pairing
+    away: fold three is hard for every model, and that shared difficulty
+    dominates the spread while cancelling exactly in the differences. On this
+    dataset the paired interval comes out several times tighter than the
+    fold spread, which is the difference between "we cannot tell" and "we
+    looked properly and there is nothing there".
+    """
+
+    if metric not in METRIC_NAMES:
+        raise KeyError(f"unknown metric {metric!r}; expected one of {METRIC_NAMES}")
+
+    if len(baseline) != len(challenger):
+        raise ValueError(
+            f"folds must be paired: {len(baseline)} against {len(challenger)}"
+        )
+
+    if len(baseline) < 2:
+        raise ValueError("a paired comparison needs at least 2 folds")
+
+    differences = np.array(
+        [
+            getattr(first, metric) - getattr(second, metric)
+            for first, second in zip(baseline, challenger)
+        ],
+        dtype=float,
+    )
+
+    mean = float(differences.mean())
+
+    # Sample standard deviation, then the standard error of the mean.
+    standard_error = float(differences.std(ddof=1) / np.sqrt(differences.size))
+
+    degrees_of_freedom = differences.size - 1
+    critical = _T_CRITICAL.get(degrees_of_freedom, 1.96)
+    margin = critical * standard_error
+
+    return PairedDifference(
+        metric=metric,
+        differences=tuple(float(value) for value in differences),
+        mean=mean,
+        standard_error=standard_error,
+        ci_low=mean - margin,
+        ci_high=mean + margin,
+    )
+
+
 def comparison_table(
     results: Mapping[str, Sequence[RegressionMetrics]],
     fit_seconds: Mapping[str, float] | None = None,

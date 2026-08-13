@@ -3,18 +3,26 @@
 Run with:
 
     python -m src.train
+    python -m src.train --features both
     python -m src.train --models xgboost lightgbm --folds 3
 
 Model selection uses k-fold cross-validation rather than a single hold-out
 split. With 1460 training rows a single split moves the score by more than
 the gap between two candidates, so the winner of one split is partly the
 winner of one lucky seed.
+
+--features both scores every candidate twice, with and without the derived
+features, so the claim that feature engineering helps can be checked rather
+than asserted. Both variants run over the same folds, which is what makes
+the two columns comparable.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,14 +43,29 @@ from src.utils import get_logger, set_seed
 
 LOGGER = get_logger("train")
 
+#: Suffix used in artifact and log paths for each feature-engineering variant.
+VARIANTS: dict[str, bool] = {"fe": True, "nofe": False}
+
+#: How the --features choice maps onto the variants to run.
+VARIANT_CHOICES: dict[str, tuple[str, ...]] = {
+    "with": ("fe",),
+    "without": ("nofe",),
+    "both": ("fe", "nofe"),
+}
+
 
 @dataclass
 class CandidateResult:
-    """The cross-validation outcome for one model."""
+    """The cross-validation outcome for one model in one variant."""
 
     name: str
+    variant: str
     folds: list[RegressionMetrics] = field(default_factory=list)
     fit_seconds: float = 0.0
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.variant})"
 
 
 def load_training_data(
@@ -66,15 +89,37 @@ def load_training_data(
     return features, target
 
 
+@contextmanager
+def run_log(name: str, variant: str, logs_dir: Path | None = None):
+    """Mirror this run's console output into logs/<variant>/<model>.log."""
+
+    directory = (logs_dir or CONFIG.logs_dir) / variant
+    directory.mkdir(parents=True, exist_ok=True)
+
+    handler = logging.FileHandler(directory / f"{name}.log", mode="w", encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)-7s | %(message)s", "%H:%M:%S")
+    )
+
+    LOGGER.addHandler(handler)
+
+    try:
+        yield directory / f"{name}.log"
+    finally:
+        LOGGER.removeHandler(handler)
+        handler.close()
+
+
 def cross_validate(
     name: str,
     features: pd.DataFrame,
     target: pd.Series,
     n_splits: int | None = None,
+    variant: str = "fe",
 ) -> CandidateResult:
     """Score one candidate across the folds.
 
-    The estimator is cloned and refitted per fold, which means the encoder
+    The estimator is rebuilt and refitted per fold, which means the encoder
     and every imputation statistic are learned from the training folds only.
     """
 
@@ -83,8 +128,11 @@ def cross_validate(
     if splits < 2:
         raise ValueError(f"cross-validation needs at least 2 folds, got {splits}")
 
+    if variant not in VARIANTS:
+        raise KeyError(f"unknown variant {variant!r}; expected one of {list(VARIANTS)}")
+
     folds = KFold(n_splits=splits, shuffle=True, random_state=CONFIG.random_seed)
-    result = CandidateResult(name=name)
+    result = CandidateResult(name=name, variant=variant)
 
     for number, (train_index, valid_index) in enumerate(folds.split(features), 1):
         X_train = features.iloc[train_index]
@@ -94,7 +142,7 @@ def cross_validate(
 
         # build_model already returns a fresh estimator; cloning it as well
         # would only say something untrue about where the state lives.
-        model = build_model(name)
+        model = build_model(name, engineer_features=VARIANTS[variant])
 
         started = time.perf_counter()
         model.fit(X_train, y_train)
@@ -105,7 +153,7 @@ def cross_validate(
 
         LOGGER.info(
             "%s fold %d/%d: rmse_log=%.4f rmse=$%s",
-            name,
+            result.label,
             number,
             splits,
             scores.rmse_log,
@@ -120,8 +168,9 @@ def compare_models(
     features: pd.DataFrame | None = None,
     target: pd.Series | None = None,
     n_splits: int | None = None,
+    variants: tuple[str, ...] = ("fe",),
 ) -> pd.DataFrame:
-    """Cross-validate every candidate and return the comparison table."""
+    """Cross-validate every candidate in every variant and rank the results."""
 
     candidates = names or available_models()
 
@@ -142,13 +191,15 @@ def compare_models(
     results = {}
     fit_seconds = {}
 
-    for name in candidates:
-        LOGGER.info("cross-validating %s", name)
+    for variant in variants:
+        for name in candidates:
+            LOGGER.info("cross-validating %s (%s)", name, variant)
 
-        result = cross_validate(name, features, target, n_splits)
+            with run_log(name, variant):
+                result = cross_validate(name, features, target, n_splits, variant)
 
-        results[name] = result.folds
-        fit_seconds[name] = result.fit_seconds
+            results[result.label] = result.folds
+            fit_seconds[result.label] = result.fit_seconds
 
     return comparison_table(results, fit_seconds)
 
@@ -165,22 +216,26 @@ def write_report(table: pd.DataFrame, path: Path | None = None) -> Path:
 
 
 def train_final_model(
-    name: str, features: pd.DataFrame, target: pd.Series
+    name: str,
+    features: pd.DataFrame,
+    target: pd.Series,
+    variant: str = "fe",
 ) -> TransformedTargetRegressor:
-    """Refit the winning candidate on every training row.
+    """Refit one candidate on every training row.
 
     Cross-validation decides which model to ship; the shipped model itself is
     trained on all the data, since holding rows back would only make it worse.
     """
 
-    model = build_model(name)
+    model = build_model(name, engineer_features=VARIANTS[variant])
 
     started = time.perf_counter()
     model.fit(features, target)
 
     LOGGER.info(
-        "final %s trained on %d rows in %.1fs",
+        "final %s (%s) trained on %d rows in %.1fs",
         name,
+        variant,
         len(features),
         time.perf_counter() - started,
     )
@@ -188,12 +243,33 @@ def train_final_model(
     return model
 
 
+def save_candidate(
+    model: TransformedTargetRegressor,
+    name: str,
+    variant: str,
+    models_dir: Path | None = None,
+) -> Path:
+    """Write one candidate to models/<name>/model_<name>_<variant>.pkl.
+
+    Every trained variant is kept so the notebook can load any of them
+    without retraining.
+    """
+
+    directory = (models_dir or CONFIG.models_dir) / name
+    directory.mkdir(parents=True, exist_ok=True)
+
+    destination = directory / f"model_{name}_{variant}.pkl"
+    joblib.dump(model, destination)
+
+    return destination
+
+
 def save_artifacts(
     model: TransformedTargetRegressor,
     raw_columns: list[str],
     models_dir: Path | None = None,
 ) -> tuple[Path, Path]:
-    """Write model.pkl and features.pkl, returning both paths.
+    """Write the shipped model.pkl and features.pkl, returning both paths.
 
     model.pkl holds the whole estimator, so it accepts a raw dataframe and
     returns sale prices in dollars.
@@ -228,6 +304,14 @@ def required_input_columns(features: pd.DataFrame) -> list[str]:
     return [column for column in features.columns if column != CONFIG.id_column]
 
 
+def split_label(label: str) -> tuple[str, str]:
+    """Turn "xgboost (fe)" back into ("xgboost", "fe")."""
+
+    name, _, variant = label.partition(" (")
+
+    return name, variant.rstrip(")")
+
+
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 
@@ -243,6 +327,15 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=CONFIG.n_splits,
         help=f"number of cross-validation folds (default: {CONFIG.n_splits})",
+    )
+    parser.add_argument(
+        "--features",
+        choices=sorted(VARIANT_CHOICES),
+        default="with",
+        help=(
+            "run with the derived features, without them, or both for the "
+            "ablation (default: with)"
+        ),
     )
     parser.add_argument(
         "--export",
@@ -262,22 +355,36 @@ def main(argv: list[str] | None = None) -> int:
     set_seed()
 
     features, target = load_training_data()
+    variants = VARIANT_CHOICES[arguments.features]
 
     LOGGER.info(
-        "training on %d rows and %d raw columns", len(features), features.shape[1]
+        "training on %d rows and %d raw columns, variants: %s",
+        len(features),
+        features.shape[1],
+        ", ".join(variants),
     )
 
     table = compare_models(
-        arguments.models, features, target, n_splits=arguments.folds
+        arguments.models, features, target, arguments.folds, variants
     )
 
-    LOGGER.info("comparison over %d folds:\n%s", arguments.folds, format_comparison(table))
+    LOGGER.info(
+        "comparison over %d folds:\n%s", arguments.folds, format_comparison(table)
+    )
 
     report_path = write_report(table)
     LOGGER.info("report written to %s", report_path)
 
     winner = best_model_name(table)
     LOGGER.info("best model: %s", winner)
+
+    # Every trained variant is kept, so the notebook can compare them later
+    # without paying for another full run.
+    for label in table["model"]:
+        name, variant = split_label(label)
+        model = train_final_model(name, features, target, variant)
+
+        LOGGER.info("saved %s", save_candidate(model, name, variant))
 
     # Winning a two-horse race is not a reason to replace the shipped model,
     # so a partial comparison exports nothing unless it is asked to.
@@ -294,7 +401,8 @@ def main(argv: list[str] | None = None) -> int:
 
         return 0
 
-    model = train_final_model(winner, features, target)
+    name, variant = split_label(winner)
+    model = train_final_model(name, features, target, variant)
 
     model_path, features_path = save_artifacts(
         model, required_input_columns(features)

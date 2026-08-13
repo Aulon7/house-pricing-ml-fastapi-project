@@ -20,6 +20,7 @@ class Config:
     data_dir: Path = PROJECT_ROOT / "data"
     models_dir: Path = PROJECT_ROOT / "models"
     reports_dir: Path = PROJECT_ROOT / "reports"
+    logs_dir: Path = PROJECT_ROOT / "logs"
 
     # The Kaggle target and the row identifier that must never reach the model.
     target: str = "SalePrice"
@@ -57,6 +58,7 @@ class Config:
 
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
 
 
 CONFIG = Config()

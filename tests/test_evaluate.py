@@ -4,11 +4,13 @@ import pytest
 
 from src.evaluate import (
     METRIC_NAMES,
+    SELECTION_METRIC,
     RegressionMetrics,
     aggregate_folds,
     best_model_name,
     comparison_table,
     format_comparison,
+    paired_difference,
 )
 
 PRICES = [200_000.0, 150_000.0, 300_000.0, 175_000.0]
@@ -133,6 +135,55 @@ def test_comparison_table_rejects_an_empty_run():
 def test_best_model_name_rejects_an_empty_table():
     with pytest.raises(ValueError, match="empty"):
         best_model_name(pd.DataFrame())
+
+
+def test_paired_difference_matches_a_hand_calculation():
+    baseline = [metrics_with(0.130), metrics_with(0.140), metrics_with(0.150)]
+    challenger = [metrics_with(0.120), metrics_with(0.130), metrics_with(0.140)]
+
+    result = paired_difference(baseline, challenger)
+
+    # Every fold improves by exactly 0.010, so there is no spread at all.
+    assert result.differences == pytest.approx((0.010, 0.010, 0.010))
+    assert result.mean == pytest.approx(0.010)
+    assert result.standard_error == pytest.approx(0.0)
+    assert result.separated
+
+
+def test_pairing_is_tighter_than_comparing_the_two_means():
+    """Shared fold difficulty cancels in the differences but not in the spread."""
+
+    # Folds 1 and 3 are hard for both variants; the gap is a steady 0.005.
+    baseline = [metrics_with(0.20), metrics_with(0.10), metrics_with(0.21)]
+    challenger = [metrics_with(0.195), metrics_with(0.095), metrics_with(0.205)]
+
+    result = paired_difference(baseline, challenger)
+    fold_spread = aggregate_folds(baseline)[f"{SELECTION_METRIC}_std"]
+
+    assert result.mean == pytest.approx(0.005)
+    assert result.standard_error < fold_spread / 10
+    assert result.separated
+
+
+def test_noisy_differences_do_not_separate_from_zero():
+    baseline = [metrics_with(0.13), metrics_with(0.15), metrics_with(0.11)]
+    challenger = [metrics_with(0.15), metrics_with(0.11), metrics_with(0.13)]
+
+    result = paired_difference(baseline, challenger)
+
+    assert result.ci_low < 0 < result.ci_high
+    assert not result.separated
+
+
+def test_paired_difference_rejects_unpaired_or_tiny_runs():
+    with pytest.raises(ValueError, match="paired"):
+        paired_difference([metrics_with(0.1)] * 3, [metrics_with(0.1)] * 2)
+
+    with pytest.raises(ValueError, match="at least 2 folds"):
+        paired_difference([metrics_with(0.1)], [metrics_with(0.1)])
+
+    with pytest.raises(KeyError, match="unknown metric"):
+        paired_difference([metrics_with(0.1)] * 2, [metrics_with(0.1)] * 2, "accuracy")
 
 
 def test_format_comparison_renders_every_model():

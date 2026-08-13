@@ -27,6 +27,8 @@ from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBRegressor
 
 from src.config import CONFIG
+from src.data_cleaning import clean_data
+from src.feature_engineering import create_features
 from src.preprocessing import HousePricingPreprocessor
 
 
@@ -37,16 +39,52 @@ class PreprocessorStep(BaseEstimator, TransformerMixin):
     fit(X, y). This wrapper bridges the two without touching that module, and
     building the preprocessor inside fit keeps the step cloneable, which is
     what cross-validation relies on.
+
+    Set engineer_features=False to score the same models without the derived
+    features. The engineered columns are dropped after preprocessing rather
+    than never created, which comes to the same thing: they are numeric
+    additions, so removing them afterwards leaves every other column, every
+    category and every imputed value exactly as it was.
     """
+
+    def __init__(self, engineer_features: bool = True):
+        self.engineer_features = engineer_features
+
+    def _engineered_columns(self, X: pd.DataFrame) -> list[str]:
+        """The columns create_features adds, asked of the module itself.
+
+        Derived rather than hard-coded so the list stays correct when P1
+        adds or renames a feature.
+        """
+
+        cleaned = clean_data(X)
+
+        return [
+            column
+            for column in create_features(cleaned).columns
+            if column not in cleaned.columns
+        ]
 
     def fit(self, X: pd.DataFrame, y=None) -> "PreprocessorStep":
         self.preprocessor_ = HousePricingPreprocessor()
         self.preprocessor_.fit(X)
 
+        self.dropped_columns_ = (
+            [] if self.engineer_features else self._engineered_columns(X)
+        )
+
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         encoded = self.preprocessor_.transform(X)
+
+        # Read defensively: a model.pkl exported before the ablation existed
+        # unpickles without this attribute, and serving should keep working
+        # rather than fail on an artifact that predates the feature.
+        dropped = getattr(self, "dropped_columns_", ())
+
+        if dropped:
+            encoded = encoded.drop(columns=list(dropped), errors="ignore")
 
         # The encoded names are read off the output rather than off the
         # preprocessor's internal ColumnTransformer, which is private to P1
@@ -161,11 +199,13 @@ def available_models() -> list[str]:
     return list(MODEL_SPECS)
 
 
-def build_model(name: str) -> TransformedTargetRegressor:
+def build_model(
+    name: str, engineer_features: bool = True
+) -> TransformedTargetRegressor:
     """Assemble one candidate: preprocessing, regressor and target transform.
 
     The returned estimator is fitted on a raw dataframe and predicts sale
-    prices in dollars.
+    prices in dollars. Pass engineer_features=False for the ablation run.
     """
 
     if name not in MODEL_SPECS:
@@ -174,7 +214,9 @@ def build_model(name: str) -> TransformedTargetRegressor:
         )
 
     spec = MODEL_SPECS[name]
-    steps: list[tuple[str, object]] = [("preprocessor", PreprocessorStep())]
+    steps: list[tuple[str, object]] = [
+        ("preprocessor", PreprocessorStep(engineer_features=engineer_features))
+    ]
 
     if spec.needs_scaling:
         steps.append(("scaler", MinMaxScaler()))
