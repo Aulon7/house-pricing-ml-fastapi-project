@@ -12,7 +12,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import DatabricksDeltaLogger, create_app
+from api.main import create_app
+from databricks.delta_logger import DatabricksDeltaLogger
 from src.config import CONFIG
 
 
@@ -132,7 +133,7 @@ def test_databricks_logger_submits_a_parameterized_delta_insert(monkeypatch):
         captured.update(kwargs)
         return SuccessfulResponse()
 
-    monkeypatch.setattr("api.main.requests.post", fake_post)
+    monkeypatch.setattr("databricks.delta_logger.requests.post", fake_post)
 
     logger = DatabricksDeltaLogger(
         host="https://example.cloud.databricks.com",
