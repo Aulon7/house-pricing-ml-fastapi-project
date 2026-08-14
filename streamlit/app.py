@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import joblib
@@ -12,7 +13,15 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
-from src.config import CONFIG
+# "streamlit run" puts this file's own directory on sys.path rather than the
+# project root, so the src package is invisible unless we add it ourselves.
+# This has to happen before the first src import, hence the placement.
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.config import CONFIG  # noqa: E402
 
 PRIMARY_FIELDS = {
     "OverallQual": "Overall quality (1–10)",
@@ -187,10 +196,11 @@ def render_advanced_inputs(
     advanced_values = current_values.copy()
 
     with st.expander("Advanced house details"):
+        # current_values starts life as a copy of every default, so testing
+        # membership in it would exclude every column and leave the expander
+        # empty. The primary inputs are the only ones already rendered.
         remaining_columns = [
-            column
-            for column in defaults
-            if column not in PRIMARY_FIELDS and column not in advanced_values
+            column for column in defaults if column not in PRIMARY_FIELDS
         ]
 
         for index in range(0, len(remaining_columns), 2):

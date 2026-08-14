@@ -15,3 +15,8 @@ models/*/
 
 # Secrets
 .env
+/logs
+/models/lightgbm
+/models/mlp
+/models/random_forest
+/models/xgboost
