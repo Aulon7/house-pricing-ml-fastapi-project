@@ -10,3 +10,9 @@ python-dotenv
 streamlit
 requests
 pytest
+
+# Needed only to open and run notebooks/01_analysis_and_feature_engineering.ipynb
+jupyter
+ipykernel
+matplotlib
+seaborn
