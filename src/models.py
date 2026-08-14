@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -124,7 +123,14 @@ def _xgboost() -> XGBRegressor:
     )
 
 
-def _lightgbm() -> LGBMRegressor:
+def _lightgbm() -> "RegressorMixin":
+    # Imported here rather than at module scope on purpose. Unpickling the
+    # exported model imports this module to reach PreprocessorStep, which
+    # would otherwise pull in LightGBM as well — and LightGBM needs the
+    # system OpenMP runtime (libgomp.so.1), which slim deployment images do
+    # not carry. Serving must not depend on a library it never calls.
+    from lightgbm import LGBMRegressor
+
     return LGBMRegressor(
         n_estimators=800,
         learning_rate=0.05,

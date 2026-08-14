@@ -1,0 +1,28 @@
+[project]
+name = "ames-housing-api"
+version = "1.0.0"
+description = "FastAPI service serving the Ames Housing price model"
+requires-python = ">=3.11"
+
+# Pinned deliberately. models/model.pkl is a pickle produced by these exact
+# versions of scikit-learn, xgboost and numpy; installing different ones can
+# fail to load it, or load it and predict differently, which is worse.
+dependencies = [
+    "fastapi[standard]==0.141.1",
+    "uvicorn==0.52.1",
+    "pydantic==2.13.4",
+    "python-dotenv==1.2.2",
+    "requests==2.34.2",
+    "joblib==1.5.3",
+    "numpy==2.5.2",
+    "pandas==3.0.5",
+    "scikit-learn==1.9.0",
+    "xgboost==3.4.0",
+]
+
+# LightGBM is deliberately absent. It is a training-time candidate only, and
+# it needs the system OpenMP runtime that slim images lack. src/models.py
+# imports it lazily so that serving never touches it.
+
+[tool.setuptools]
+packages = ["api", "src"]
