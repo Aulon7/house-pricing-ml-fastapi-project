@@ -88,3 +88,24 @@ You should see the input JSON, predicted price, UTC timestamp, and model hash.
 
 The `.env` file is ignored by Git and must not be committed. If the values are
 not configured, predictions still work; only Delta Lake logging is skipped.
+
+## Start the Streamlit dashboard
+
+The dashboard calls the FastAPI service for every prediction. Start the API
+first, then launch Streamlit from the project root:
+
+```powershell
+uvicorn api.main:app --reload
+streamlit run streamlit/app.py
+```
+
+The dashboard provides:
+
+- **Single prediction** — edit the five main house features, optionally expand
+  advanced details, and submit one house to `POST /predict`.
+- **Batch prediction** — upload a CSV with the raw model columns and download
+  the results with a `PredictedSalePrice` column.
+
+Form defaults come from [`models/defaults.json`](models/defaults.json), which
+P4 prepared as the baseline house profile. Override the API location with
+`STREAMLIT_API_URL` in `.env` when the service is not running locally.
